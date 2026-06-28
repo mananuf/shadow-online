@@ -1,0 +1,9 @@
+# Node / Vite
+web/node_modules/
+web/dist/
+# Generated at build by scripts/copy-assets.mjs (mirror of ../assets)
+web/public/assets/
+
+# OS / editor
+.DS_Store
+*.log
