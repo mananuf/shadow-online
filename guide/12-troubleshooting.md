@@ -27,43 +27,49 @@ that fails.)
 
 See Chapter 1 ("Where Shadow runs") for the native-vs-emulated rule.
 
-## gean nodes exit 1 immediately under **stock** Shadow (amd64): unsupported UDP `setsockopt`
+## gean nodes exit 1 immediately under **stock** Shadow (amd64): "setting DF failed"
+
+Captured gean stderr (from the `shadow-gate` CI artifact):
 
 ```
-=== gate: run simulation (nodes=3 stop_time=120s) ===
+INFO  [node] initializing from genesis
+ERROR [network] create p2p host: create libp2p host: failed to listen on any addresses:
+                [setting DF failed for both IPv4 and IPv6]
+ERROR [node] fatal: create libp2p host: failed to listen on any addresses:
+                [setting DF failed for both IPv4 and IPv6]
+```
+
+with these Shadow-side warnings just before the exit:
+
+```
 [WARN] setsockopt SO_BROADCAST not yet implemented for udp; ignoring and returning 0
 [WARN] setsockopt called with unsupported level 0  and opt 10    # IPPROTO_IP   / IP_MTU_DISCOVER
 [WARN] setsockopt called with unsupported level 41 and opt 23    # IPPROTO_IPV6 / IPV6_MTU_DISCOVER
-[ERROR] process 'node0.gean.1000' exited with status Normal(1); expected end state was running
-Error: 3 managed processes in unexpected final state
 ```
 
-**What happened.** This is from the `shadow-gate` CI job on **native amd64** with **stock Shadow
-v3.3.0**. Shadow built and ran, but every gean node exited status 1 within the first millisecond of
-simulated time — it **never booted**, never reached genesis. The proximate cause is gean's
-**QUIC/UDP socket setup**: go-libp2p/quic-go sets several UDP socket options at connection setup
-(GSO, ECN `IP_RECVTOS`/`IPV6_RECVTCLASS`, DF/path-MTU `IP_MTU_DISCOVER`, packet-info), and stock
-Shadow 3.3.0 doesn't implement all of them. quic-go's `newConn` aborts if the options it treats as
-required fail, so the QUIC transport fails to start and gean exits.
+**Confirmed root cause.** gean reaches genesis init, then dies creating the libp2p host. The exact
+fatal call is quic-go's **`setDF`** (set the IP *Don't-Fragment* bit for path-MTU discovery): it
+calls `setsockopt(IP_MTU_DISCOVER)` and `setsockopt(IPV6_MTU_DISCOVER)`, and **returns a fatal error
+when *both* fail** (`sys_conn_df_linux.go`). Stock Shadow v3.3.0 doesn't implement `IP_MTU_DISCOVER`
+and returns an error for both families, so quic-go aborts the listener → libp2p host creation fails →
+gean exits 1. There is **no env knob** to disable DF in quic-go (unlike `QUIC_GO_DISABLE_GSO` /
+`QUIC_GO_DISABLE_ECN`).
 
-**Why the fuzzer's runs (Chapter 8) still boot.** Those use the **arm64** `kamilsa/shadow-arm` base
-(a different Shadow build) and a `gean:shadow-base` image that may predate the current quic-go.
-The stock-Shadow-v3.3.0 + current-branch combination is what trips here — which is exactly the kind
-of regression the gate exists to catch.
+**Why the fuzzer's runs (Chapter 8) boot fine.** They use the **arm64 `kamilsa/shadow-arm`** base,
+whose Shadow build *ignores-and-returns-0* for `IP_MTU_DISCOVER` (the way stock Shadow already does
+for `SO_BROADCAST`). So `setDF` succeeds and gean boots. **gean is not broken — the gate's stock
+Shadow v3.3.0 is simply stricter than the Shadow the ecosystem actually runs.**
 
-**How to diagnose precisely.** The Shadow log shows the *unsupported* options but not gean's own
-error. Capture the node stderr to see which call quic-go treated as fatal:
+**Fix.** Make the gate's Shadow tolerate `IP_MTU_DISCOVER`:
 
-```bash
-# add to the gate (or run locally on amd64 Linux):  upload shadow.data as an artifact, then:
-sed -E 's/\x1b\[[0-9;]*m//g' run1.data/hosts/node0/*.stderr | grep -iE 'quic|ecn|setsockopt|listen|transport'
-```
+- **Preferred:** build the gate on the **same Shadow the fuzzer uses** (Kamil's image / fork), which
+  already ignores this option — then the in-repo gate matches real interop runs; or
+- **Alternative:** bump `SHADOW_VERSION` in `shadow/Dockerfile` to an upstream release that handles
+  `IP_MTU_DISCOVER`, and re-run the gate.
 
-**Likely fixes** (to evaluate once the exact call is pinned): a newer Shadow with broader sockopt
-support; a go-libp2p/quic-go transport option that skips the unsupported setup; or, if it is the ECN
-path, note that `QUIC_GO_DISABLE_ECN` does **not** help (it only flips the capability flag, it does
-not suppress the `setsockopt`). This is open at the time of writing — the gate is red on purpose
-until it's resolved.
+`QUIC_GO_DISABLE_ECN` / `QUIC_GO_DISABLE_GSO` do **not** help — neither touches `setDF`. Patching
+quic-go to make DF non-fatal is possible but invasive for a sim-only concern; fixing the Shadow side
+is cleaner. The gate stays red until the Shadow base is aligned.
 
 ## "pull access denied for gean … repository does not exist"
 
