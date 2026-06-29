@@ -37,20 +37,32 @@ Key invariants encoded here:
 - **The package doc requires every `Sleep*` to run off the Engine tick loop** so the node clock
   stays accurate. Two of the three call sites honor this; one does not — see Chapter 5's gotcha.
 
-## The three CLI flags: `cmd/gean/flags.go`
+## The three CLI flags (and their env fallback): `cmd/gean/flags.go`
 
-Three `float64` flags, all defaulting to `0` (disabled):
+Three `float64` flags, all defaulting to `0` (disabled), each with a matching environment-variable
+fallback:
 
-```
---shadow-xmss-aggregate-signatures-rate            # cost of building an aggregate
---shadow-xmss-verify-signature-rate                # cost of verifying one gossip attestation
---shadow-xmss-verify-aggregated-signatures-rate    # cost of verifying an aggregated signature
-```
+| Flag | Env fallback | Cost of |
+|------|--------------|---------|
+| `--shadow-xmss-aggregate-signatures-rate` | `GEAN_SHADOW_XMSS_AGGREGATE_SIGNATURES_RATE` | building an aggregate |
+| `--shadow-xmss-verify-signature-rate` | `GEAN_SHADOW_XMSS_VERIFY_SIGNATURE_RATE` | verifying one gossip attestation |
+| `--shadow-xmss-verify-aggregated-signatures-rate` | `GEAN_SHADOW_XMSS_VERIFY_AGGREGATED_SIGNATURES_RATE` | verifying an aggregated signature |
 
-Registered in `cmd/gean/flags.go` (around lines 64–66); negative values are rejected by config
-validation. They are stored on the `config` struct and turned into a `shadow.Rates` in
-`cmd/gean/main.go`, which is threaded into `node.New(...)` and stored on the `Engine` as
-`Engine.Shadow`.
+Registered in `cmd/gean/flags.go`; negative values are rejected by config validation. Resolution
+precedence is **flag > env > 0**: if you pass the flag it wins; otherwise the env var is read;
+otherwise the rate stays `0` (disabled). This env fallback (added in `resolveShadowRates`) lets a
+Shadow harness inject per-node rates through the environment without rewriting argv — exactly how
+gean's own `shadow/gen_shadow_yaml.sh` drives them. The resolved values are stored on the `config`
+struct, turned into a `shadow.Rates` in `cmd/gean/main.go`, threaded into `node.New(...)`, and
+stored on the `Engine` as `Engine.Shadow`.
+
+> **Naming caveat (lean-shadow-fuzzer).** The fuzzer's `scripts/client-cmds/gean-cmd.sh` uses
+> *shorter* env names — `GEAN_SHADOW_XMSS_AGGREGATE_RATE`, `GEAN_SHADOW_XMSS_VERIFY_RATE`,
+> `GEAN_SHADOW_XMSS_VERIFY_AGGREGATED_RATE` — and translates them into the `--shadow-xmss-*-rate`
+> **flags** itself. So the fuzzer path works regardless of gean's env names (it goes through flags).
+> gean's own env fallback uses the longer `…_SIGNATURES_RATE` names that match the flags one-to-one.
+> If you want the fuzzer to drive gean's env fallback *directly* (no flag translation), align the
+> two name sets — a small future cleanup, noted in Chapter 5.
 
 ## The three injection sites — which XMSS ops are wrapped
 
@@ -58,9 +70,13 @@ The whole feature is three one-line calls placed immediately after the real XMSS
 
 | Op | Where | Call | Units `n` |
 |----|-------|------|-----------|
-| **Aggregate** | `internal/aggregation/aggregate.go:116` | `shadowRates.SleepAggregate(len(rawIDs)+len(childProofs))` | input signatures + child proofs |
-| **Verify (single)** | `internal/node/gossip.go:52` | `e.Shadow.SleepVerify()` | always 1 |
-| **Verify (aggregated)** | `internal/node/gossip.go:83` | `e.Shadow.SleepVerifyAggregated(int(types.BitlistCount(participants)))` | number of participants |
+| **Aggregate** | `internal/aggregation/aggregate.go` (`shadowRates.SleepAggregate(...)`, just after `xmss.AggregateWithChildren`) | `len(rawIDsBuf)+len(childProofsBuf)` | input signatures + child proofs |
+| **Verify (single)** | `internal/node/gossip.go` (`e.Shadow.SleepVerify()` in `onGossipAttestation`) | always 1 |
+| **Verify (aggregated)** | `internal/node/gossip.go` (`e.Shadow.SleepVerifyAggregated(...)` in `onGossipAggregatedAttestation`) | `types.BitlistCount(participants)` |
+
+> Line numbers shift as `devnet-5` lands; grep for `Sleep` in those two files rather than trusting a
+> fixed line. After the `devnet-5` merge the aggregate site moved (the worker gained a proving-gate
+> and a per-session deadline), but the *call* is unchanged — the sleep still wraps the same FFI op.
 
 - The **aggregate** sleep sits right after `xmss.AggregateWithChildren(...)` inside the
   aggregation worker (which runs on its own goroutine, off the tick loop). Its comment notes that
@@ -75,16 +91,24 @@ The whole feature is three one-line calls placed immediately after the real XMSS
 
 ```
 fuzzer config  signatures_aggregation_rate = 1000   (sig/s, Chapter 6)
-      │  generate-shadow-yaml.sh exports GEAN_SHADOW_XMSS_* env
+      │  generate-shadow-yaml.sh exports GEAN_SHADOW_XMSS_*_RATE env
       ▼
-gean-cmd.sh    --shadow-xmss-aggregate-signatures-rate 1000  (and the two verify flags)
-      │  cmd/gean/flags.go parses to config.Shadow*Rate (float64)
+gean-cmd.sh    --shadow-xmss-aggregate-signatures-rate 1000  (translates env → flags)
+      │
+      │   ── OR, gean's own harness: shadow/gen_shadow_yaml.sh puts
+      │      GEAN_SHADOW_XMSS_*_SIGNATURES_RATE in each host's environment,
+      │      and gean reads it directly via the env fallback (flag > env > 0)
+      ▼
+cmd/gean/flags.go  resolveShadowRates → config.Shadow*Rate (float64)
       ▼
 main.go        shadow.Rates{AggregateSignatures: 1000, ...}
       │  node.New(..., shadowRates)
       ▼
 Engine.Shadow  → SleepAggregate / SleepVerify / SleepVerifyAggregated at the 3 call sites
 ```
+
+Two ways in, same destination: the **fuzzer** hands gean *flags* (translating its own env names),
+while gean's **own harness** sets gean's `GEAN_SHADOW_*` env vars and lets the binary read them.
 
 ## What was NOT touched
 
@@ -93,6 +117,7 @@ imports only `time` and has zero knowledge of consensus state. The blast radius 
 package, three flags, a `shadow.Rates` field threaded through one constructor, and three one-line
 calls. That isolation is the subject of Chapter 5.
 
-> There is also a heavier, **off-main** `shadow` branch that carries the simulator *harness*
-> itself (Docker gate runner, keygen genesis-time overrides). That is a different thing from the
-> cost-model package above — Chapter 4 untangles the two.
+> The simulator *harness* (Docker gate runner, `shadow/gen_shadow_yaml.sh`, keygen genesis-time
+> overrides, the CI gate) is a separate, heavier layer that now lives alongside this cost model on
+> the consolidated `feat/shadow-sim-xmss-rates` branch — Chapter 4 untangles the two and explains
+> why having both on one branch does not affect interop runs.

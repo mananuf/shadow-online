@@ -17,11 +17,21 @@ touch it. The realistic sources of change are narrow:
 2. **The fuzzer's rate convention changing.** If the lean-shadow-fuzzer changes what
    `signatures_aggregation_rate` means or adds new rate knobs, gean's flags / `gean-cmd.sh`
    mapping update accordingly.
-3. **The harness branch rebasing.** Independent of the cost model — handled by the auto-rebase CI
-   (Chapter 4).
+3. **The harness / merges.** The harness (`shadow/`) and CI gate live with the cost model on the
+   consolidated branch (Chapter 4); a `devnet-5` merge can shift the aggregate call site (the worker
+   gained a proving-gate + per-session deadline) — re-check the three `Sleep*` calls survive a merge.
 
 That's it. There is no coupling to block production, attestation validity, hashing, or SSZ, so
 spec work won't drag the Shadow code along.
+
+### Two cleanups worth doing
+
+- **Align the env-var names with the fuzzer.** gean's fallback reads
+  `GEAN_SHADOW_XMSS_*_SIGNATURES_RATE`; the fuzzer's `gean-cmd.sh` emits the shorter
+  `GEAN_SHADOW_XMSS_*_RATE` and translates to flags. Matching the names would let the fuzzer drive
+  gean's env fallback directly, dropping the flag-translation step (Chapter 3).
+- **Verify the gate on native amd64.** The `shadow-gate` CI job (Chapter 4) is the real boot/finalize
+  check; the emulated Mac gate can't run it (`pidfd_open`, Chapter 12).
 
 ## What to look out for when improving the Shadow code
 

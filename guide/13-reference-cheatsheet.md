@@ -4,14 +4,15 @@ One page. Everything you reach for repeatedly.
 
 ## gean Shadow flags (default 0 = disabled)
 
-| Flag | Wraps | Units `n` |
-|------|-------|-----------|
-| `--shadow-xmss-aggregate-signatures-rate` | building an aggregate (`AggregateWithChildren`) | raw sigs + child proofs |
-| `--shadow-xmss-verify-signature-rate` | verifying one gossip attestation | 1 |
-| `--shadow-xmss-verify-aggregated-signatures-rate` | verifying an aggregated signature | participant count |
+| Flag | Env fallback (gean) | Wraps | Units `n` |
+|------|---------------------|-------|-----------|
+| `--shadow-xmss-aggregate-signatures-rate` | `GEAN_SHADOW_XMSS_AGGREGATE_SIGNATURES_RATE` | building an aggregate (`AggregateWithChildren`) | raw sigs + child proofs |
+| `--shadow-xmss-verify-signature-rate` | `GEAN_SHADOW_XMSS_VERIFY_SIGNATURE_RATE` | verifying one gossip attestation | 1 |
+| `--shadow-xmss-verify-aggregated-signatures-rate` | `GEAN_SHADOW_XMSS_VERIFY_AGGREGATED_SIGNATURES_RATE` | verifying an aggregated signature | participant count |
 
 Semantics: **rate is signatures/second**; an `n`-signature op sleeps `n / rate` **seconds**.
 `rate = 1000` ⇒ ~1 ms/sig. `rate = 0` (default) ⇒ no sleep. Higher rate = faster prover = less sleep.
+Resolution precedence: **flag > env > 0**.
 
 ```
 sleep_seconds = n_signatures / rate_sig_per_second
@@ -20,18 +21,41 @@ sleep_seconds = n_signatures / rate_sig_per_second
 ⚠️ Keep `--shadow-xmss-verify-aggregated-signatures-rate` modest — it currently sleeps on the tick
 loop (Chapter 5).
 
+> **Fuzzer env names differ.** The lean-shadow-fuzzer's `gean-cmd.sh` sets the shorter
+> `GEAN_SHADOW_XMSS_{AGGREGATE,VERIFY,VERIFY_AGGREGATED}_RATE` and converts them to the flags above
+> (it works through flags). gean's own env fallback uses the longer `…_SIGNATURES_RATE` names that
+> mirror the flags exactly (Chapter 3).
+
+## Makefile targets (gean repo)
+
+| Target | What it does |
+|--------|--------------|
+| `make shadow-build` | Build gean for Shadow (dynamic ELF, CGo on); harness sets `QUIC_GO_DISABLE_GSO=true` per host |
+| `make shadow-setup` | keygen a testnet + generate `shadow/shadow.yaml` (uses `--genesis-delay`) |
+| `make shadow-run` | Run the simulation **natively** (needs `shadow` installed on a Linux host) |
+| `make shadow-docker-build` | Build the gean image + the Shadow gate image (`shadow/Dockerfile`), pinned `linux/amd64` |
+| `make shadow-docker-run` | Build + run the gate in Docker; asserts finalization. **amd64 only** — emulated on a Mac it fails (Chapter 12) |
+
+Overrides: `SHADOW_DOCKER_NODES`, `SHADOW_DOCKER_STOP_TIME`, `SHADOW_DETERMINISM=1` (assert identical
+per-slot roots across two runs), `SHADOW_GENESIS_DELAY`, `SHADOW_STOP_TIME`. Gate prover rates:
+`SHADOW_AGG_RATE`, `SHADOW_VERIFY_RATE`, `SHADOW_VERIFY_AGG_RATE` (sig/s) → injected into each host's
+`GEAN_SHADOW_*` environment.
+
 ## gean code map
 
 | Thing | Location |
 |-------|----------|
 | Cost-model package | `internal/shadow/shadow.go` |
-| Flags | `cmd/gean/flags.go` |
+| Flags + env fallback | `cmd/gean/flags.go` (`resolveShadowRates`) |
 | Aggregate sleep | `internal/aggregation/aggregate.go` (after `xmss.AggregateWithChildren`) |
 | Single-verify sleep | `internal/node/gossip.go` (`onGossipAttestation`) |
 | Aggregated-verify sleep | `internal/node/gossip.go` (`onGossipAggregatedAttestation`) |
 | Committee-count constant | `internal/types/constants.go` (`AttestationCommitteeCount = 1`) |
 | Genesis committee check | `internal/genesis/load.go` |
+| In-repo harness | `shadow/gen_shadow_yaml.sh`, `shadow/run-gates.sh`, `shadow/Dockerfile` |
+| keygen genesis overrides | `cmd/keygen` (`--genesis-time` / `--genesis-delay`) |
 | Auto-rebase CI | `.github/workflows/shadow-rebase.yml` |
+| Shadow gate CI (amd64) | `.github/workflows/shadow-gate.yml` |
 
 ## fuzzer config knobs (`config.toml`)
 
@@ -101,4 +125,4 @@ grep -liE "panic|fatal|error" $RUN/shadow.data/hosts/*/*.stderr
 
 - **Subnets:** 1 only (`AttestationCommitteeCount = 1`).
 - **Shadow rates:** aggregate + single-verify are off-loop (safe); aggregated-verify is on-loop (use modest values).
-- **Platform for Shadow:** Linux; on macOS via the `docker-arm` runner.
+- **Platform for Shadow:** Linux only. Native arm64 works (fuzzer `docker-arm`); native amd64 works (CI / Linux box). **Emulated amd64 on a Mac fails** (`pidfd_open`, Chapter 12).

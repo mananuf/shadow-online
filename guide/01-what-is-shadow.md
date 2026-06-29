@@ -37,11 +37,25 @@ blocks, propagates attestations, and **finalizes**, across all participating cli
 
 ## Where Shadow runs
 
-Shadow is **Linux-only** — it relies on Linux syscall interception. On macOS (including Apple
-Silicon) you run it **inside a Linux container**: the lean-shadow-fuzzer's `docker-arm` runner
-builds a composite Linux/arm64 image containing both the Shadow binary and the client binaries,
-then runs the simulation inside that container. That is how every example in this guide was
-produced on an Apple-Silicon Mac.
+Shadow is **Linux-only** — it relies on Linux syscall interception (`seccomp`/`ptrace`, `/proc`,
+Linux UDP socket options). macOS has a different kernel with none of that, so Shadow cannot run on
+macOS directly; you always run it **inside a Linux container**.
+
+There is one subtlety that trips people up, and it's worth getting straight now:
+
+- **A *native-architecture* Linux container works.** On Apple Silicon, the lean-shadow-fuzzer's
+  `docker-arm` runner builds a composite **linux/arm64** image (Shadow base `kamilsa/shadow-arm` +
+  the client binaries) and runs the simulation in it. Shadow runs fine on arm64 Linux — that is how
+  every fuzzer example in this guide was produced on an Apple-Silicon Mac. So "Linux-only" does
+  **not** mean "x86-only."
+- **An *emulated* container does not.** gean's *own* in-repo gate (`shadow/Dockerfile`,
+  `make shadow-docker-run`) pins **linux/amd64**. On an arm64 Mac that runs under QEMU emulation,
+  and Shadow aborts at startup because QEMU doesn't implement syscalls Shadow needs (e.g.
+  `pidfd_open` → "Function not implemented"). See Chapter 12.
+
+**The rule of thumb:** on a Mac, run Shadow through the fuzzer's native-arm64 path, or on native
+amd64 (a Linux box or CI). Don't try to emulate amd64 Shadow on Apple Silicon — it will fail before
+your client even boots.
 
 ## The catch that the next chapter is about
 
