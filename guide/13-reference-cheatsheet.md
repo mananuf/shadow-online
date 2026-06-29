@@ -33,11 +33,12 @@ loop (Chapter 5).
 | `make shadow-build` | Build gean for Shadow (dynamic ELF, CGo on); harness sets `QUIC_GO_DISABLE_GSO=true` per host |
 | `make shadow-setup` | keygen a testnet + generate `shadow/shadow.yaml` (uses `--genesis-delay`) |
 | `make shadow-run` | Run the simulation **natively** (needs `shadow` installed on a Linux host) |
-| `make shadow-docker-build` | Build the gean image + the Shadow gate image (`shadow/Dockerfile`), pinned `linux/amd64` |
-| `make shadow-docker-run` | Build + run the gate in Docker; asserts finalization. **amd64 only** — emulated on a Mac it fails (Chapter 12) |
+| `make shadow-docker-build` | Build the gean image + the gate image (`shadow/Dockerfile`, bases on `kamilsa/shadow-arm`), `linux/arm64` |
+| `make shadow-docker-run` | Build + run the gate in Docker; asserts finalization. **arm64, native** — works on Apple Silicon and arm64 CI |
 
 Overrides: `SHADOW_DOCKER_NODES`, `SHADOW_DOCKER_STOP_TIME`, `SHADOW_DETERMINISM=1` (assert identical
-per-slot roots across two runs), `SHADOW_GENESIS_DELAY`, `SHADOW_STOP_TIME`. Gate prover rates:
+per-slot roots across two runs), `SHADOW_GENESIS_DELAY`, `SHADOW_EPOCH` (Shadow's sim start, default
+`946684800` — genesis = `SHADOW_EPOCH + delay`), `SHADOW_STOP_TIME`. Gate prover rates:
 `SHADOW_AGG_RATE`, `SHADOW_VERIFY_RATE`, `SHADOW_VERIFY_AGG_RATE` (sig/s) → injected into each host's
 `GEAN_SHADOW_*` environment.
 
@@ -125,4 +126,7 @@ grep -liE "panic|fatal|error" $RUN/shadow.data/hosts/*/*.stderr
 
 - **Subnets:** 1 only (`AttestationCommitteeCount = 1`).
 - **Shadow rates:** aggregate + single-verify are off-loop (safe); aggregated-verify is on-loop (use modest values).
-- **Platform for Shadow:** Linux only. Native arm64 works (fuzzer `docker-arm`); native amd64 works (CI / Linux box). **Emulated amd64 on a Mac fails** (`pidfd_open`, Chapter 12).
+- **Platform for Shadow:** Linux only, **native arch**. Both the fuzzer and gean's gate use arm64
+  `kamilsa/shadow-arm` → runs natively on Apple Silicon and `ubuntu-24.04-arm` CI. Don't emulate
+  cross-arch (the old amd64 gate failed under QEMU with `pidfd_open`, Chapter 12).
+- **Genesis under Shadow:** anchor to `SHADOW_EPOCH` (946684800, 2000-01-01), not wall-clock, or no slot fires.

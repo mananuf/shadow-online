@@ -18,14 +18,11 @@ Apple-Silicon Mac that runs under QEMU emulation, and QEMU does not implement `p
 client never even boots. (The image *builds* fine under emulation — it's the simulation runtime
 that fails.)
 
-**Fix.** Don't emulate amd64 Shadow on Apple Silicon. Either:
-
-- Run the gate on **native amd64** — the `shadow-gate` CI job (`ubuntu-latest`) does exactly this,
-  or use any amd64 Linux box; or
-- On a Mac, run Shadow through the **lean-shadow-fuzzer's `docker-arm` runner** (Chapters 6–7),
-  which uses a native **arm64** Shadow base (`kamilsa/shadow-arm`) and runs without emulation.
-
-See Chapter 1 ("Where Shadow runs") for the native-vs-emulated rule.
+**This is now fixed** — the gate no longer pins amd64. It bases on the arm64 `kamilsa/shadow-arm`
+image and runs on a native `ubuntu-24.04-arm` runner, so `make shadow-docker-run` runs **natively on
+Apple Silicon** (no QEMU, no `pidfd_open`). You'll only hit the crash above on an old checkout that
+still compiles upstream amd64 Shadow. General rule (Chapter 1): run Shadow on its native arch, never
+emulated.
 
 ## gean nodes exit 1 immediately under **stock** Shadow (amd64): "setting DF failed"
 
@@ -57,19 +54,30 @@ gean exits 1. There is **no env knob** to disable DF in quic-go (unlike `QUIC_GO
 
 **Why the fuzzer's runs (Chapter 8) boot fine.** They use the **arm64 `kamilsa/shadow-arm`** base,
 whose Shadow build *ignores-and-returns-0* for `IP_MTU_DISCOVER` (the way stock Shadow already does
-for `SO_BROADCAST`). So `setDF` succeeds and gean boots. **gean is not broken — the gate's stock
-Shadow v3.3.0 is simply stricter than the Shadow the ecosystem actually runs.**
+for `SO_BROADCAST`). So `setDF` succeeds and gean boots. **gean is not broken — upstream stock Shadow
+v3.3.0 is simply stricter than the Shadow the ecosystem actually runs.** (Both report version 3.3.0;
+Kamil's is a patched build.)
 
-**Fix.** Make the gate's Shadow tolerate `IP_MTU_DISCOVER`:
+**Fix (applied).** The gate now bases on **`kamilsa/shadow-arm`** instead of compiling upstream
+Shadow — `shadow/Dockerfile` does `FROM kamilsa/shadow-arm` and copies the gean binary in (the same
+shape the fuzzer uses). That image is arm64-only, so the gate runs on a native **`ubuntu-24.04-arm`**
+runner, and `make shadow-docker-run` now works natively on Apple Silicon too. `QUIC_GO_DISABLE_ECN` /
+`QUIC_GO_DISABLE_GSO` do **not** help (neither touches `setDF`); patching quic-go is possible but
+invasive for a sim-only concern, so aligning the Shadow base is the clean fix.
 
-- **Preferred:** build the gate on the **same Shadow the fuzzer uses** (Kamil's image / fork), which
-  already ignores this option — then the in-repo gate matches real interop runs; or
-- **Alternative:** bump `SHADOW_VERSION` in `shadow/Dockerfile` to an upstream release that handles
-  `IP_MTU_DISCOVER`, and re-run the gate.
+> **Heads-up — there's a *second* bug behind this one.** Once gean boots, it still won't finalize
+> unless genesis is anchored to Shadow's virtual clock — see the next entry.
 
-`QUIC_GO_DISABLE_ECN` / `QUIC_GO_DISABLE_GSO` do **not** help — neither touches `setDF`. Patching
-quic-go to make DF non-fatal is possible but invasive for a sim-only concern; fixing the Shadow side
-is cleaner. The gate stays red until the Shadow base is aligned.
+## Chain boots but never advances (head/finalized stuck at 0): genesis in the sim future
+
+**Cause.** Shadow's virtual clock starts at **unix 946684800 (2000-01-01 UTC)**, but `keygen`'s
+`--genesis-delay` sets genesis from the *wall clock* (now + delay, ~2026). Genesis then sits ~26
+simulated years in the future, so no slot ever fires — nodes boot, peer, and sit at slot 0.
+
+**Fix.** Anchor genesis to Shadow's epoch, not wall-clock. `run-gates.sh` now uses
+`--genesis-time $((SHADOW_EPOCH + GENESIS_DELAY))` with `SHADOW_EPOCH=946684800`; the Makefile's
+`shadow-setup` does the same. With genesis ~30 s into the sim and a 120 s `stop_time`, a 3-node run
+reaches **head ≈ 22, finalized ≈ 19** — gate green.
 
 ## "pull access denied for gean … repository does not exist"
 

@@ -42,18 +42,19 @@ consolidated branch above, this matters mainly for keeping the legacy branch fro
 
 ### The CI gate: `.github/workflows/shadow-gate.yml`
 
-GitHub's `ubuntu-latest` runners are **native amd64 Linux** — Shadow's well-supported platform — so
-the gate runs there on pushes to the shadow branches. It builds the gean image + Shadow and runs
-`shadow/run-gates.sh`, asserting the chain **finalizes** (`finalized_slot >= 1`). This is the only
-place the simulator runs *for real* on every change: macOS can't run Shadow, and arm64 emulation of
-the amd64 gate image crashes (Chapter 12, `pidfd_open`).
+The gate runs on a native **`ubuntu-24.04-arm`** runner on pushes to the shadow branches. It builds
+the gean image, bases the gate image on **`kamilsa/shadow-arm`** (the Shadow the fuzzer uses), and
+runs `shadow/run-gates.sh`, asserting the chain **finalizes** (`finalized_slot >= 1`). This is the
+only place the simulator runs *for real* on every change — the normal build/test jobs never run
+Shadow.
 
-**It immediately earned its keep.** The first gate run is **red**: on stock Shadow v3.3.0, the
-current branch's gean nodes exit 1 at socket setup before genesis — a real QUIC/UDP-sockopt boot
-failure that the normal build/test jobs cannot see (they don't run Shadow). That's the gate working
-as intended; the failure analysis is Chapter 12 ("gean nodes exit 1 immediately under stock
-Shadow"). Note this does **not** contradict the fuzzer runs in Chapter 8, which boot on the arm64
-`kamilsa/shadow-arm` base — pinning that difference is the open follow-up.
+**It immediately earned its keep.** The first runs were **red** and surfaced two real bugs the build
+jobs can't see (full analysis in Chapter 12): (1) on *upstream* Shadow v3.3.0 the gean nodes exited
+at QUIC listener setup (`setting DF failed` — the `IP_MTU_DISCOVER` sockopt upstream rejects), and
+(2) genesis was anchored to wall-clock instead of Shadow's virtual epoch, so the chain never
+advanced. The fix: base the gate on Kamil's Shadow (which tolerates the sockopt, hence the arm64
+runner) and anchor genesis to `SHADOW_EPOCH`. With both, a 3-node gate run reaches head ≈ 22,
+finalized ≈ 19 — **green**, and matching the fuzzer's interop runs (Chapter 8).
 
 ## Does Shadow code on an interop branch affect interop runs?
 

@@ -4,12 +4,11 @@ This chapter takes you from nothing to a rendered Observatory page, on macOS (Ap
 Linux host the steps are identical except you can also use the `local` runner with a host `shadow`
 binary; everything below uses the `docker-arm` runner so it works on a Mac.
 
-> **Two ways to run Shadow with gean — don't confuse them.** This chapter uses the
-> **lean-shadow-fuzzer** (native arm64, works on a Mac). gean *also* ships a small in-repo gate
-> (`make shadow-docker-run`) for a quick "does it finalize?" check — but that image is **amd64**,
-> so on Apple Silicon it runs emulated and **crashes at Shadow startup** (`pidfd_open`, Chapter 12).
-> Use the fuzzer on a Mac; use the in-repo gate on amd64 (CI or a Linux box). Chapter 4 explains the
-> split.
+> **Two ways to run Shadow with gean.** This chapter uses the **lean-shadow-fuzzer** for full sweeps
+> and the Observatory. gean *also* ships a small in-repo gate (`make shadow-docker-run`) for a quick
+> "does it boot and finalize?" check — it bases on the same arm64 `kamilsa/shadow-arm` Shadow, so it
+> runs **natively on Apple Silicon** (no emulation). Use the fuzzer for metrics-rich sweeps; use the
+> gate for a fast green/red. Chapter 4 explains the split.
 
 ## Prerequisites
 
