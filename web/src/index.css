@@ -127,3 +127,31 @@ body {
   border-top: 1px solid #1f2940;
   margin: 2rem 0;
 }
+
+/* Long tokens (flag names, paths) must wrap rather than force a horizontal
+   scroll of the whole page on narrow screens. Code blocks and tables keep
+   their own scroll. */
+.md p,
+.md li {
+  overflow-wrap: anywhere;
+}
+
+/* Phone sizing: smaller headings and code so a chapter reads without zooming. */
+@media (max-width: 640px) {
+  .md h1 {
+    font-size: 1.5rem;
+  }
+  .md h2 {
+    font-size: 1.2rem;
+  }
+  .md h3 {
+    font-size: 1.02rem;
+  }
+  .md pre {
+    font-size: 0.78rem;
+    padding: 0.85rem 0.9rem;
+  }
+  .md table {
+    font-size: 0.82rem;
+  }
+}

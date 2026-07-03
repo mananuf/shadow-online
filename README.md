@@ -28,7 +28,7 @@ Start at [`guide/01-what-is-shadow.md`](guide/01-what-is-shadow.md) and walk the
 | 08 | [One subnet, one client](guide/08-one-subnet-one-client.md) | The canonical gean run, walked end to end |
 | 09 | [Multiple subnets, one client](guide/09-multi-subnet-one-client.md) | Config mechanics + gean's single-subnet limit |
 | 10 | [Multiple clients & subnets](guide/10-multi-client-multi-subnet.md) | Interop sweeps (zeam + gean) |
-| 11 | [Reading the metrics](guide/11-reading-the-metrics.md) | Every Observatory chart, explained |
+| 11 | [Metrics mastery — beginners to pro](guide/11-reading-the-metrics.md) | Foundations → gean's live `/metrics` + budgets → Observatory charts → pro diagnosis |
 | 12 | [Troubleshooting](guide/12-troubleshooting.md) | Every error we hit and how to fix it |
 | 13 | [Reference cheat-sheet](guide/13-reference-cheatsheet.md) | Flags, knobs, commands on one page |
 

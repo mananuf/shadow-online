@@ -4,18 +4,46 @@ export function Sidebar({
   chapters,
   active,
   onSelect,
+  open,
+  onClose,
 }: {
   chapters: Chapter[];
   active: string;
   onSelect: (id: string) => void;
+  open: boolean;
+  onClose: () => void;
 }) {
   return (
-    <nav className="flex h-full w-72 shrink-0 flex-col overflow-y-auto border-r border-[#1f2940] bg-[#0a0f1e]">
-      <div className="border-b border-[#1f2940] px-5 py-5">
-        <div className="text-sm font-semibold tracking-wide text-white">
-          Shadow Simulation
+    <nav
+      className={
+        // Off-canvas drawer on small screens; static column from md up.
+        "fixed inset-y-0 left-0 z-40 flex h-full w-72 max-w-[85%] shrink-0 transform flex-col overflow-y-auto border-r border-[#1f2940] bg-[#0a0f1e] transition-transform duration-200 md:static md:z-auto md:max-w-none md:translate-x-0 " +
+        (open ? "translate-x-0" : "-translate-x-full")
+      }
+    >
+      <div className="flex items-start justify-between gap-2 border-b border-[#1f2940] px-5 py-5">
+        <div>
+          <div className="text-sm font-semibold tracking-wide text-white">Shadow Simulation</div>
+          <div className="text-xs text-[#7d8aa6]">Mastery Guide · gean</div>
         </div>
-        <div className="text-xs text-[#7d8aa6]">Mastery Guide · gean</div>
+        <button
+          onClick={onClose}
+          aria-label="Close chapters"
+          className="-mr-1 rounded-lg p-1 text-[#7d8aa6] hover:text-white md:hidden"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
+          </svg>
+        </button>
       </div>
       <ul className="flex-1 px-2 py-3">
         {chapters.map((c) => {
