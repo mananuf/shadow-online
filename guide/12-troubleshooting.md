@@ -3,30 +3,27 @@
 Every entry here is something we actually hit while producing this guide. Each has the exact symptom
 and the fix.
 
-## `make shadow-docker-run` on a Mac: `pidfd_open failed … "Function not implemented"`
+## Emulated (amd64) Shadow on a Mac: `pidfd_open failed … "Function not implemented"`
 
 ```
-=== gate: run simulation (nodes=3 stop_time=120s) ===
 pidfd_open failed for Pid(78): Os { code: 38, kind: Unsupported, message: "Function not implemented" }
 called `Result::unwrap()` on an `Err` value: PoisonError { .. }
 fatal runtime error: failed to initiate panic, error 5, aborting
 ```
 
-**Cause.** gean's in-repo gate image (`shadow/Dockerfile`) is pinned to **linux/amd64**. On an
-Apple-Silicon Mac that runs under QEMU emulation, and QEMU does not implement `pidfd_open` — so
-**Shadow itself crashes at startup, before any gean node launches.** This is not a gean bug; the
-client never even boots. (The image *builds* fine under emulation — it's the simulation runtime
-that fails.)
+**Cause.** A **linux/amd64** Shadow image on an Apple-Silicon Mac runs under QEMU emulation, and QEMU
+does not implement `pidfd_open` — so **Shadow itself crashes at startup, before any node launches.**
+This is not a client bug; nothing even boots. (The image *builds* fine under emulation — it's the
+simulation runtime that fails.)
 
-**This is now fixed** — the gate no longer pins amd64. It bases on the arm64 `kamilsa/shadow-arm`
-image and runs on a native `ubuntu-24.04-arm` runner, so `make shadow-docker-run` runs **natively on
-Apple Silicon** (no QEMU, no `pidfd_open`). You'll only hit the crash above on an old checkout that
-still compiles upstream amd64 Shadow. General rule (Chapter 1): run Shadow on its native arch, never
-emulated.
+**Avoid it by running native arch.** The fuzzer bases on the arm64 `kamilsa/shadow-arm` image and
+runs on a native `ubuntu-24.04-arm` runner (or your Apple-Silicon Mac), so there is no QEMU and no
+`pidfd_open`. You only hit the crash above if you build/run an amd64 Shadow under emulation. General
+rule (Chapter 1): run Shadow on its native arch, never emulated.
 
 ## gean nodes exit 1 immediately under **stock** Shadow (amd64): "setting DF failed"
 
-Captured gean stderr (from the `shadow-gate` CI artifact):
+Captured gean stderr:
 
 ```
 INFO  [node] initializing from genesis
@@ -58,12 +55,11 @@ for `SO_BROADCAST`). So `setDF` succeeds and gean boots. **gean is not broken �
 v3.3.0 is simply stricter than the Shadow the ecosystem actually runs.** (Both report version 3.3.0;
 Kamil's is a patched build.)
 
-**Fix (applied).** The gate now bases on **`kamilsa/shadow-arm`** instead of compiling upstream
-Shadow — `shadow/Dockerfile` does `FROM kamilsa/shadow-arm` and copies the gean binary in (the same
-shape the fuzzer uses). That image is arm64-only, so the gate runs on a native **`ubuntu-24.04-arm`**
-runner, and `make shadow-docker-run` now works natively on Apple Silicon too. `QUIC_GO_DISABLE_ECN` /
-`QUIC_GO_DISABLE_GSO` do **not** help (neither touches `setDF`); patching quic-go is possible but
-invasive for a sim-only concern, so aligning the Shadow base is the clean fix.
+**Fix.** Use **`kamilsa/shadow-arm`** as the Shadow base instead of compiling upstream Shadow — that
+is exactly what the fuzzer does (`shadow_image = "kamilsa/shadow-arm"`), and it runs on a native
+**`ubuntu-24.04-arm`** runner or Apple Silicon. `QUIC_GO_DISABLE_ECN` / `QUIC_GO_DISABLE_GSO` do
+**not** help (neither touches `setDF`); patching quic-go is possible but invasive for a sim-only
+concern, so aligning the Shadow base is the clean fix.
 
 > **Heads-up — there's a *second* bug behind this one.** Once gean boots, it still won't finalize
 > unless genesis is anchored to Shadow's virtual clock — see the next entry.
@@ -74,28 +70,27 @@ invasive for a sim-only concern, so aligning the Shadow base is the clean fix.
 `--genesis-delay` sets genesis from the *wall clock* (now + delay, ~2026). Genesis then sits ~26
 simulated years in the future, so no slot ever fires — nodes boot, peer, and sit at slot 0.
 
-**Fix.** Anchor genesis to Shadow's epoch, not wall-clock. `run-gates.sh` now uses
-`--genesis-time $((SHADOW_EPOCH + GENESIS_DELAY))` with `SHADOW_EPOCH=946684800`; the Makefile's
-`shadow-setup` does the same. With genesis ~30 s into the sim and a 120 s `stop_time`, a 3-node run
-reaches **head ≈ 22, finalized ≈ 19** — gate green.
+**Fix.** Anchor genesis to Shadow's epoch, not wall-clock — the fuzzer does this automatically,
+generating genesis at `SHADOW_EPOCH + delay` (with `SHADOW_EPOCH = 946684800`). With genesis ~30 s
+into the sim and a 120 s `stop_time`, a 3-node run reaches **head ≈ 22, finalized ≈ 19**.
 
-## "pull access denied for gean … repository does not exist"
+## "pull access denied" / image not found for gean
 
 ```
 Error response from daemon: pull access denied for gean, repository does not exist
-docker pull --platform linux/arm64 gean:shadow-base  → non-zero exit
 ```
 
 **Cause.** The fuzzer pulls each `[clients]` image with `docker pull` *only if* `docker image
-inspect` fails. `gean:shadow-base` is a **local** image (you built it), not in any registry, so if
-inspect transiently fails the pull then fails too. We saw this as a one-off when the daemon was busy
-mid-build.
+inspect` fails locally. If your config points at an image that isn't present locally and isn't
+pullable — a stale local tag, or a private image you're not logged in to — the pull fails.
 
-**Fix.** Confirm the image exists and inspect works, then re-run:
+**Fix.** Point the config at the published image and pull it, or build it locally:
 
 ```bash
-docker image inspect gean:shadow-base >/dev/null && echo OK
-docker build -t gean:shadow-base ../gean     # rebuild if it's genuinely missing
+docker pull ghcr.io/geanlabs/gean:shadow            # the published image
+# or build locally (make docker-build also tags :shadow):
+cd ../gean && make docker-build
+docker image inspect ghcr.io/geanlabs/gean:shadow >/dev/null && echo OK
 ```
 
 ## gean nodes exit immediately: "ATTESTATION_COMMITTEE_COUNT=N disagrees with gean's 1"

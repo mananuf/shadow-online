@@ -14,7 +14,7 @@ and a `client-cmds/<c>-cmd.sh`. A zeam + gean run:
 
 ```toml
 [client_images.gean]
-image = "gean:shadow-base"
+image = "ghcr.io/geanlabs/gean:shadow"
 executable = "gean"
 
 [client_images.zeam]

@@ -50,13 +50,13 @@ There is one subtlety that trips people up, and it's worth getting straight now:
   **not** mean "x86-only."
 - **An *emulated* container does not.** Compiling upstream Shadow for **linux/amd64** and running it
   under QEMU on an arm64 Mac aborts at startup — QEMU doesn't implement syscalls Shadow needs (e.g.
-  `pidfd_open` → "Function not implemented"). gean's in-repo gate used to hit this; it now bases on
-  the arm64 `kamilsa/shadow-arm` image and runs natively (Chapter 4), so `make shadow-docker-run`
-  works on Apple Silicon. See Chapter 12 for the history.
+  `pidfd_open` → "Function not implemented"). The fuzzer sidesteps this by basing on the arm64
+  `kamilsa/shadow-arm` image and running natively on Apple Silicon (Chapter 4). See Chapter 12 for
+  the history.
 
-**The rule of thumb:** run Shadow on its **native architecture** — the fuzzer and gean's gate both
-use arm64 Shadow, which runs natively on Apple Silicon and arm64 CI. Don't emulate Shadow across
-architectures; it fails before your client even boots.
+**The rule of thumb:** run Shadow on its **native architecture** — the fuzzer uses arm64 Shadow,
+which runs natively on Apple Silicon and arm64 CI. Don't emulate Shadow across architectures; it
+fails before your client even boots.
 
 ## The catch that the next chapter is about
 

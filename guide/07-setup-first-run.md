@@ -4,11 +4,10 @@ This chapter takes you from nothing to a rendered Observatory page, on macOS (Ap
 Linux host the steps are identical except you can also use the `local` runner with a host `shadow`
 binary; everything below uses the `docker-arm` runner so it works on a Mac.
 
-> **Two ways to run Shadow with gean.** This chapter uses the **lean-shadow-fuzzer** for full sweeps
-> and the Observatory. gean *also* ships a small in-repo gate (`make shadow-docker-run`) for a quick
-> "does it boot and finalize?" check — it bases on the same arm64 `kamilsa/shadow-arm` Shadow, so it
-> runs **natively on Apple Silicon** (no emulation). Use the fuzzer for metrics-rich sweeps; use the
-> gate for a fast green/red. Chapter 4 explains the split.
+> **How gean runs under Shadow.** Like every other client, gean is driven by the
+> **lean-shadow-fuzzer** — it ships no in-repo harness. All you provide is a gean image that
+> understands the `--shadow-xmss-*` flags; the fuzzer generates the topology, writes `shadow.yaml`,
+> runs Shadow, and renders the Observatory. Chapter 4 explains the setup.
 
 ## Prerequisites
 
@@ -20,19 +19,24 @@ binary; everything below uses the `docker-arm` runner so it works on a Mac.
 | Node.js | The Observatory web UI | `brew install node` |
 | A `gean` arm64 image | The client binary baked into the sim | built below |
 
-## Step 1 — build the gean Shadow image
+## Step 1 — get the gean Shadow image
 
-The fuzzer needs a gean image it can bake into the composite. Build it from the gean checkout (this
-image carries the `--shadow-xmss-*` flags from Chapter 3):
+The fuzzer needs a gean image it can bake into the composite. gean publishes one at
+`ghcr.io/geanlabs/gean:shadow` (it only needs to understand the `--shadow-xmss-*` flags from
+Chapter 3). Pull it, or build it locally from the gean checkout:
 
 ```bash
-cd ../gean
-docker build -t gean:shadow-base .
-# verify the flags are present:
-docker run --rm gean:shadow-base --help | grep shadow
+# option A — pull the published image
+docker pull ghcr.io/geanlabs/gean:shadow
+
+# option B — build locally (docker-build also tags :shadow)
+cd ../gean && make docker-build
+
+# verify the flags are present, either way:
+docker run --rm ghcr.io/geanlabs/gean:shadow --help | grep shadow
 ```
 
-You should see the three `--shadow-xmss-*-rate` flags. The image name `gean:shadow-base` is what the
+You should see the three `--shadow-xmss-*-rate` flags. `ghcr.io/geanlabs/gean:shadow` is what the
 fuzzer config references.
 
 ## Step 2 — install fuzzer dependencies
@@ -62,7 +66,7 @@ image_name = "shadow-fuzzer:local"
 rebuild = true
 
 [client_images.gean]
-image = "gean:shadow-base"
+image = "ghcr.io/geanlabs/gean:shadow"
 executable = "gean"
 
 [simulation]
