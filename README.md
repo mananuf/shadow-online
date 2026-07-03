@@ -20,9 +20,9 @@ Start at [`guide/01-what-is-shadow.md`](guide/01-what-is-shadow.md) and walk the
 |---|---------|----------------|
 | 01 | [What is Shadow](guide/01-what-is-shadow.md) | The simulator, why lean-consensus uses it |
 | 02 | [Why prover cost must be modeled](guide/02-why-prover-cost.md) | The core reason gean needed changes |
-| 03 | [gean's Shadow support](guide/03-gean-shadow-support.md) | Exactly what was added to the codebase |
-| 04 | [gean branch strategy](guide/04-gean-branch-strategy.md) | cost-model vs harness vs `devnet-5`; interop safety; one branch, two images |
-| 05 | [Maintaining gean's Shadow code](guide/05-maintaining-gean-shadow.md) | Change cadence, what to watch, known gotcha |
+| 03 | [gean's Shadow support](guide/03-gean-shadow-support.md) | The cost model + flags — all gean ships; the fuzzer drives it |
+| 04 | [gean branch & image strategy](guide/04-gean-branch-strategy.md) | Interop safety, and the one image (`:shadow`) the fuzzer pulls |
+| 05 | [Maintaining gean's Shadow code](guide/05-maintaining-gean-shadow.md) | Change cadence, the fuzzer integration, the known gotcha |
 | 06 | [The lean-shadow-fuzzer](guide/06-fuzzer-overview.md) | What the repo is and how it's wired |
 | 07 | [Setup & your first run](guide/07-setup-first-run.md) | Prereqs → build → run → render → Observatory |
 | 08 | [One subnet, one client](guide/08-one-subnet-one-client.md) | The canonical gean run, walked end to end |
